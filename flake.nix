@@ -10,11 +10,65 @@
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder/0.3.1";
     logos-blockchain.url = "github:logos-blockchain/logos-blockchain?ref=0.3.4";
+    # Windows (x86_64-w64-mingw32) build of the node's C library (liblogos_blockchain.dll
+    # + import lib + header): logos-blockchain 0.3.4 + the logos-node-windows patches,
+    # built natively with MSYS2 MinGW64 and fully static runtime (imports only system DLLs).
+    # See WINDOWS.md. Only used for the x86_64-windows target.
+    logos-blockchain-win = {
+      url = "path:/workspace/lgxwin/winlib";
+      flake = false;
+    };
   };
 
   outputs = inputs@{ self, logos-module-builder, ... }:
     let
       nixpkgs = logos-module-builder.inputs.nixpkgs;
+
+      # Prebuilt Windows node library, staged in the layout the builder expects
+      # (lib/ = .dll + .dll.a, include/ = header).
+      # Windows cross package set the builder itself uses (logos-nix mkWindowsPkgs).
+      winPkgs = logos-module-builder.inputs.logos-nix.lib.mkWindowsPkgs { buildSystem = "x86_64-linux"; };
+
+      # nixpkgs' libfyaml uses the autotools build, which cannot target mingw
+      # (needs pthreads, and its tool includes a header the dist tarball lacks).
+      # libfyaml 0.9.6 supports Windows through its CMake build; use that.
+      fyamlWin = winPkgs.libfyaml.overrideAttrs (o: {
+        nativeBuildInputs = [ winPkgs.buildPackages.cmake winPkgs.buildPackages.pkg-config winPkgs.buildPackages.ninja ];
+        buildInputs = [ winPkgs.windows.pthreads ];
+        configurePhase = null;
+        autoreconfPhase = null;
+        dontUseCmakeConfigure = false;
+        preConfigure = "";
+        # The generated .def names the module "fyaml", so the import library
+        # records fyaml.dll while MinGW writes libfyaml.dll: anything linked
+        # against it would look for a DLL that does not exist. Name it after
+        # the file that is actually produced.
+        postPatch = ''
+          substituteInPlace cmake/generate-def.cmake \
+            --replace-fail 'LIBRARY fyaml' 'LIBRARY libfyaml'
+        '';
+        cmakeFlags = [ "-DBUILD_TESTING=OFF" "-DENABLE_NETWORK=OFF" "-DENABLE_PORTABLE_TARGET=ON" "-DBUILD_SHARED_LIBS=ON" ];
+        doCheck = false;
+        outputs = [ "out" ];
+        # 0.9.6's public headers cannot be included from C++ with g++: the
+        # atomics header enables C11 `_Atomic` for any non-strict GCC (g++ has
+        # no `_Atomic`) and its non-atomic fallback does not compile. The patch
+        # maps the C11 atomics onto <atomic> in C++ (as C++23 <stdatomic.h>
+        # does). Only the installed headers change; the C library is untouched.
+        postInstall = ''
+          patch -d $out -p1 < ${./patches/libfyaml-0.9.6-cxx-atomics.patch}
+        '';
+        postFixup = "";
+      });
+
+      winLib = nixpkgs.legacyPackages.x86_64-linux.runCommand "logos-blockchain-c-0.3.4-win64" {} ''
+        mkdir -p $out/lib $out/include
+        # Rust's windows-gnu cdylib is named logos_blockchain.dll (no lib prefix);
+        # the import library records that name, so it is shipped under it.
+        cp ${inputs.logos-blockchain-win}/logos_blockchain.dll $out/lib/
+        cp ${inputs.logos-blockchain-win}/liblogos_blockchain.dll.a $out/lib/
+        cp ${inputs.logos-blockchain-win}/logos_blockchain.h $out/include/
+      '';
       systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
       forAllSystems = fn: nixpkgs.lib.genAttrs systems fn;
 
@@ -24,7 +78,23 @@
         flakeInputs = inputs;
 
         externalLibInputs = {
-          logos_blockchain = inputs.logos-blockchain;
+          # Every native system builds the node from source as upstream does; the
+          # Windows cross target links the prebuilt MinGW library instead (the
+          # upstream circuits' Windows archives are not linkable as shipped).
+          logos_blockchain = {
+            packages = inputs.logos-blockchain.packages // {
+              x86_64-windows.default = winLib;
+            };
+          };
+          # Windows only (metadata.json nix.platforms); the native entries are
+          # never linked, they only keep every system's evaluation total.
+          fyaml = {
+            packages = forAllSystems (system: {
+              default = nixpkgs.legacyPackages.${system}.libfyaml;
+            }) // {
+              x86_64-windows.default = fyamlWin;
+            };
+          };
         };
 
         tests = {
@@ -123,7 +193,10 @@
     module // {
       mock = mockModule;
 
-      packages = forAllSystems (system:
+      packages = {
+        # Windows cross target (x86_64-w64-mingw32) straight from the builder.
+        x86_64-windows = module.packages.x86_64-windows;
+      } // forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
           example = (mkExampleModule { inherit pkgs system; }).packages.${system};

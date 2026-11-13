@@ -18,24 +18,66 @@
     "liblogos_blockchain.dylib",
     "liblogos_blockchain.so",
     "liblogos_blockchain.dll",
+    "logos_blockchain.dll",
     "blockchain_module_plugin.dylib",
     "blockchain_module_plugin.so",
     "blockchain_module_plugin.dll",
     "libfyaml.so.0",
     "libfyaml.0.dylib",
-    "libfyaml.dylib"
+    "libfyaml.dylib",
+    "libfyaml.dll"
   ],
-
   "nix": {
     "packages": {
       "build": [],
-      "runtime": ["nlohmann_json", "boost", "libfyaml","libfyaml.out"]
+      "runtime": [
+        "nlohmann_json",
+        "boost"
+      ]
     },
     "external_libraries": [
-      { "name": "logos_blockchain" }
+      {
+        "name": "logos_blockchain"
+      }
     ],
     "cmake": {
-      "extra_include_dirs": ["lib"]
-    }
+      "extra_include_dirs": [
+        "lib"
+      ]
+    },
+    "platforms": [
+      {
+        "when": {
+          "os": "linux"
+        },
+        "packages": {
+          "runtime": [
+            "libfyaml",
+            "libfyaml.out"
+          ]
+        }
+      },
+      {
+        "when": {
+          "os": "darwin"
+        },
+        "packages": {
+          "runtime": [
+            "libfyaml",
+            "libfyaml.out"
+          ]
+        }
+      },
+      {
+        "when": {
+          "os": "windows"
+        },
+        "external_libraries": [
+          {
+            "name": "fyaml"
+          }
+        ]
+      }
+    ]
   }
 }

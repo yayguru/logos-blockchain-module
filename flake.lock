@@ -225,6 +225,19 @@
         "type": "github"
       }
     },
+    "logos-blockchain-win": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794601079,
+        "narHash": "sha256-LFIPHC7HuYYVqMxwXkGWjwDVcLuLhe08n/05s0yfWdQ=",
+        "path": "/workspace/lgxwin/winlib",
+        "type": "path"
+      },
+      "original": {
+        "path": "/workspace/lgxwin/winlib",
+        "type": "path"
+      }
+    },
     "logos-capability-module": {
       "inputs": {
         "logos-module-builder": "logos-module-builder_2"
@@ -16677,6 +16690,7 @@
     "root": {
       "inputs": {
         "logos-blockchain": "logos-blockchain",
+        "logos-blockchain-win": "logos-blockchain-win",
         "logos-module-builder": "logos-module-builder"
       }
     },
