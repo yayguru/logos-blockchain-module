@@ -1,0 +1,21 @@
+diff --git a/tracing/src/logging/local.rs b/tracing/src/logging/local.rs
+index 01608ba..1553350 100644
+--- a/tracing/src/logging/local.rs
++++ b/tracing/src/logging/local.rs
+@@ -169,7 +169,15 @@ where
+     builder = builder.rotation(rotation);
+ 
+     if let AppenderType::Rolling(_) = file_config.appender_type {
+-        builder = builder.latest_symlink(format!("{prefix_str}.latest"));
++        // A `<prefix>.latest` symlink needs SeCreateSymbolicLinkPrivilege on
++        // Windows (an elevated token or Developer Mode); without it the build
++        // below fails with os error 1314 and the node never starts. Normal
++        // Windows users (e.g. running the node inside Logos Basecamp) have
++        // neither, so the convenience link is Unix-only.
++        #[cfg(not(windows))]
++        {
++            builder = builder.latest_symlink(format!("{prefix_str}.latest"));
++        }
+         if let RetentionType::MaxFiles { max_files } = retention {
+             builder = builder.max_log_files(max_files);
+         }

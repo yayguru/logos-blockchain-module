@@ -228,8 +228,8 @@
     "logos-blockchain-win": {
       "flake": false,
       "locked": {
-        "lastModified": 1794601079,
-        "narHash": "sha256-LFIPHC7HuYYVqMxwXkGWjwDVcLuLhe08n/05s0yfWdQ=",
+        "lastModified": 1794616520,
+        "narHash": "sha256-Qz7/c7FnNy+FCiv47UKV3/+0JknPuKIrPs4/eN+2BOA=",
         "path": "/workspace/lgxwin/winlib",
         "type": "path"
       },
