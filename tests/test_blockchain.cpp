@@ -3,6 +3,7 @@
 
 #include <logos_test.h>
 #include "logos_blockchain_module.h"
+#include "config_paths.h"
 
 #include <cstdlib>
 #include <algorithm>
@@ -3091,4 +3092,84 @@ LOGOS_TEST(read_accounts_fails_on_a_missing_config) {
     LOGOS_ASSERT_FALSE(
         LogosBlockchainModule().read_accounts(tmpDir.filePath("nope.yaml")).success
     );
+}
+
+
+// Relative state.base_folder must follow the config, not the process cwd.
+LOGOS_TEST(resolve_state_base_folder_joins_relative_paths) {
+    auto t = LogosTestContext("blockchain_module");
+    const fs::path config = fs::path("/data/node") / "user_config.yaml";
+    LOGOS_ASSERT_EQ(
+        config_paths::resolve_state_base_folder(config, "./state").generic_string(),
+        std::string("/data/node/state")
+    );
+    LOGOS_ASSERT_EQ(
+        config_paths::resolve_state_base_folder(config, "state").generic_string(),
+        std::string("/data/node/state")
+    );
+    LOGOS_ASSERT_EQ(
+        config_paths::resolve_state_base_folder(config, "").generic_string(),
+        std::string("/data/node/state")
+    );
+    LOGOS_ASSERT_EQ(
+        config_paths::resolve_state_base_folder(config, "/var/lib/logos/state").generic_string(),
+        std::string("/var/lib/logos/state")
+    );
+    LOGOS_ASSERT_EQ(
+        config_paths::resolve_state_base_folder(config, "C:/LogosMiner/data/state").generic_string(),
+        std::string("C:/LogosMiner/data/state")
+    );
+    LOGOS_ASSERT_TRUE(config_paths::is_absolute(fs::path("C:/LogosMiner/data/state")));
+    LOGOS_ASSERT_FALSE(config_paths::is_absolute(fs::path("./state")));
+}
+
+LOGOS_TEST(start_sets_STATE_PATH_from_a_relative_base_folder) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    const std::string config = tmpDir.filePath("user_config.yaml");
+    {
+        std::ofstream out(config);
+        out << "state:\n  base_folder: ./state\n";
+    }
+    const auto previous = config_paths::get_env("STATE_PATH");
+    t.mockCFunction("start_lb_node").returns(1);
+    t.mockCFunction("subscribe_to_new_blocks").returns(0);
+
+    LogosBlockchainModule module;
+    LOGOS_ASSERT_TRUE(module.start(config, "").success);
+    const auto now = config_paths::get_env("STATE_PATH");
+    LOGOS_ASSERT_TRUE(now.has_value());
+    LOGOS_ASSERT_EQ(fs::path(*now).lexically_normal(), (tmpDir.path / "state").lexically_normal());
+
+    if (previous)
+        config_paths::set_env("STATE_PATH", *previous);
+    else
+        config_paths::unset_env("STATE_PATH");
+}
+
+LOGOS_TEST(start_keeps_an_absolute_base_folder) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    const fs::path absolute = tmpDir.path / "v11-state";
+    const std::string config = tmpDir.filePath("user_config.yaml");
+    {
+        std::ofstream out(config);
+        out << "state:\n  base_folder: " << absolute.generic_string() << "\n";
+    }
+    const auto previous = config_paths::get_env("STATE_PATH");
+    t.mockCFunction("start_lb_node").returns(1);
+    t.mockCFunction("subscribe_to_new_blocks").returns(0);
+
+    LogosBlockchainModule module;
+    LOGOS_ASSERT_TRUE(module.start(config, "").success);
+    const auto now = config_paths::get_env("STATE_PATH");
+    LOGOS_ASSERT_TRUE(now.has_value());
+    LOGOS_ASSERT_EQ(fs::path(*now).lexically_normal(), absolute.lexically_normal());
+
+    if (previous)
+        config_paths::set_env("STATE_PATH", *previous);
+    else
+        config_paths::unset_env("STATE_PATH");
 }

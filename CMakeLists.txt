@@ -12,6 +12,8 @@ set(BLOCKCHAIN_MODULE_SOURCES
     src/logos_blockchain_module.cpp
     src/user_config_reader.h
     src/user_config_reader.cpp
+    src/config_paths.h
+    src/config_paths.cpp
 )
 
 # The mock variant (`nix build .#mock`) answers the node half of the C API from

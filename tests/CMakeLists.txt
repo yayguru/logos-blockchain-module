@@ -10,6 +10,7 @@ logos_test(
     MODULE_SOURCES
         ../src/logos_blockchain_module.cpp
         ../src/user_config_reader.cpp
+        ../src/config_paths.cpp
     TEST_SOURCES
         main.cpp
         test_blockchain.cpp
@@ -37,6 +38,7 @@ if(LIBLOGOS_BLOCKCHAIN_PATH)
         MODULE_SOURCES
             ../src/logos_blockchain_module.cpp
             ../src/user_config_reader.cpp
+            ../src/config_paths.cpp
         TEST_SOURCES
             main.cpp
             test_blockchain.cpp

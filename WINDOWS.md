@@ -58,6 +58,7 @@ lgx sign result/*.lgx --key yayguru.jwk --name yayguru --url https://github.com/
 
 Notes
 
+* **"Use an existing config" and the state folder:** a relative `state.base_folder` (and the default `./state` when the key is omitted) is resolved against the config file's directory, not Basecamp's current working directory. `logos_host` often inherits an unrelated cwd, and a cwd-relative `./state` would start a fresh chain in the wrong place. An already-absolute `state.base_folder` is left unchanged.
 * **Another node on the same PC?** "Generate a new node" uses the default ports (UDP 3000, HTTP 127.0.0.1:8080).
   If a standalone node already uses them, generate the config with other ports (or edit `net_port`/blend port/`http`
   listen address in `user_config.yaml`) and use "Use an existing config".

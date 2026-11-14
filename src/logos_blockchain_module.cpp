@@ -1,6 +1,7 @@
 #include "logos_blockchain_module.h"
 
 #include "user_config_reader.h"
+#include "config_paths.h"
 
 #include <algorithm>
 #include <boost/algorithm/hex.hpp>
@@ -692,6 +693,22 @@ StdLogosResult LogosBlockchainModule::start(const std::string& config_path, cons
 
     effective_config_path = localPathFromFileUrl(effective_config_path);
     const std::string deployment_path = localPathFromFileUrl(deployment);
+
+    // Relative state.base_folder (and the ./state default) must follow the
+    // config file, not logos_host's cwd. The node library still resolves
+    // those paths against cwd; STATE_PATH is the override it already honors.
+    if (!effective_config_path.empty()) {
+        const fs::path config_file(effective_config_path);
+        if (const auto configured = config_paths::read_state_base_folder(config_file)) {
+            const fs::path resolved = config_paths::resolve_state_base_folder(config_file, *configured);
+            config_paths::set_env("STATE_PATH", resolved.string());
+            fprintf(
+                stderr,
+                "start: resolving state.base_folder against the config directory: %s\n",
+                resolved.string().c_str()
+            );
+        }
+    }
 
     const char* config_path_ptr = effective_config_path.empty() ? nullptr : effective_config_path.c_str();
     const char* deployment_ptr = deployment_path.empty() ? nullptr : deployment_path.c_str();
