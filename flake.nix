@@ -15,7 +15,7 @@
     # built natively with MSYS2 MinGW64 and fully static runtime (imports only system DLLs).
     # See WINDOWS.md. Only used for the x86_64-windows target.
     logos-blockchain-win = {
-      url = "path:/workspace/lgxwin/winlib";
+      url = "https://github.com/yayguru/logos-blockchain-module/releases/download/v0.3.4-windows.1/logos_blockchain-0.3.4-windows-x86_64-gnu.tar.gz";
       flake = false;
     };
   };
