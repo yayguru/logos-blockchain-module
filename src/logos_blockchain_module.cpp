@@ -1586,6 +1586,96 @@ StdLogosResult LogosBlockchainModule::get_channel_state(const std::string& chann
     return result::ok(std::move(out));
 }
 
+namespace {
+
+StdLogosResult take_json_result(char* value, OperationStatus error, const char* what) {
+    if (!is_ok(&error)) {
+        return result::err(operation_status::take_message(error));
+    }
+    std::string out(value ? value : "");
+    OperationStatus free_status = free_cstring(value);
+    if (!is_ok(&free_status)) {
+        fprintf(stderr, "Failed to free %s string: %s\n", what, operation_status::take_message(free_status).c_str());
+    }
+    return result::ok(std::move(out));
+}
+
+}  // namespace
+
+StdLogosResult LogosBlockchainModule::channel_inscribe(const std::string& request_json) const {
+    // dry_run estimates work without a running node when gas prices are in the request.
+    auto [value, error] = ::channel_inscribe(node, request_json.c_str());
+    return take_json_result(value, error, "channel_inscribe");
+}
+
+StdLogosResult LogosBlockchainModule::channel_withdraw(const std::string& request_json) const {
+    auto [value, error] = ::channel_withdraw(node, request_json.c_str());
+    return take_json_result(value, error, "channel_withdraw");
+}
+
+StdLogosResult LogosBlockchainModule::channel_keygen(const std::string& key_path) {
+    if (key_path.empty()) {
+        return result::err("key_path must not be empty.");
+    }
+    auto [value, error] = ::channel_keygen(key_path.c_str());
+    return take_json_result(value, error, "channel_keygen");
+}
+
+StdLogosResult LogosBlockchainModule::channel_key_ident(const std::string& key_path) {
+    if (key_path.empty()) {
+        return result::err("key_path must not be empty.");
+    }
+    auto [value, error] = ::channel_key_ident(key_path.c_str());
+    return take_json_result(value, error, "channel_key_ident");
+}
+
+StdLogosResult LogosBlockchainModule::get_gas_prices() const {
+    if (!node) {
+        return result::err("The node is not running.");
+    }
+    auto [value, error] = ::get_gas_prices(node);
+    return take_json_result(value, error, "get_gas_prices");
+}
+
+StdLogosResult LogosBlockchainModule::sdp_get_declarations() const {
+    if (!node) {
+        return result::err("The node is not running.");
+    }
+    auto [value, error] = ::sdp_get_declarations(node);
+    return take_json_result(value, error, "sdp_get_declarations");
+}
+
+StdLogosResult LogosBlockchainModule::sdp_get_snapshot() const {
+    if (!node) {
+        return result::err("The node is not running.");
+    }
+    auto [value, error] = ::sdp_get_snapshot(node);
+    return take_json_result(value, error, "sdp_get_snapshot");
+}
+
+StdLogosResult LogosBlockchainModule::sdp_get_finalized_declarations(const std::string& service_type) const {
+    if (!node) {
+        return result::err("The node is not running.");
+    }
+    auto [value, error] = ::sdp_get_finalized_declarations(node, service_type.c_str());
+    return take_json_result(value, error, "sdp_get_finalized_declarations");
+}
+
+StdLogosResult LogosBlockchainModule::sdp_post_declaration(const std::string& request_json) const {
+    auto [value, error] = ::sdp_post_declaration(node, request_json.c_str());
+    return take_json_result(value, error, "sdp_post_declaration");
+}
+
+StdLogosResult LogosBlockchainModule::sdp_post_activity(const std::string& request_json) const {
+    auto [value, error] = ::sdp_post_activity(node, request_json.c_str());
+    return take_json_result(value, error, "sdp_post_activity");
+}
+
+StdLogosResult LogosBlockchainModule::sdp_post_withdrawal(const std::string& request_json) const {
+    auto [value, error] = ::sdp_post_withdrawal(node, request_json.c_str());
+    return take_json_result(value, error, "sdp_post_withdrawal");
+}
+
 StdLogosResult LogosBlockchainModule::wallet_get_claimable_vouchers() const {
     if (!node) {
         return result::err("The node is not running.");

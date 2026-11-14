@@ -226,6 +226,60 @@ OperationStatus free_claimable_vouchers(ClaimableVouchers vouchers) {
     return make_status(0);
 }
 
+
+#define MOCK_JSON_FN(fn) \
+    LOGOS_CMOCK_RECORD(#fn); \
+    StringResult result; \
+    const char* json = LOGOS_CMOCK_RETURN_STRING(#fn); \
+    result.value = json ? strdup(json) : nullptr; \
+    result.error = make_status(LOGOS_CMOCK_RETURN(int, #fn "_error")); \
+    return result
+
+StringResult channel_inscribe(LogosBlockchainNode* node, const char* request_json) {
+    (void)node; (void)request_json;
+    MOCK_JSON_FN(channel_inscribe);
+}
+StringResult channel_withdraw(LogosBlockchainNode* node, const char* request_json) {
+    (void)node; (void)request_json;
+    MOCK_JSON_FN(channel_withdraw);
+}
+StringResult channel_keygen(const char* key_path) {
+    (void)key_path;
+    MOCK_JSON_FN(channel_keygen);
+}
+StringResult channel_key_ident(const char* key_path) {
+    (void)key_path;
+    MOCK_JSON_FN(channel_key_ident);
+}
+StringResult get_gas_prices(LogosBlockchainNode* node) {
+    (void)node;
+    MOCK_JSON_FN(get_gas_prices);
+}
+StringResult sdp_get_declarations(LogosBlockchainNode* node) {
+    (void)node;
+    MOCK_JSON_FN(sdp_get_declarations);
+}
+StringResult sdp_get_snapshot(LogosBlockchainNode* node) {
+    (void)node;
+    MOCK_JSON_FN(sdp_get_snapshot);
+}
+StringResult sdp_get_finalized_declarations(LogosBlockchainNode* node, const char* service_type) {
+    (void)node; (void)service_type;
+    MOCK_JSON_FN(sdp_get_finalized_declarations);
+}
+StringResult sdp_post_declaration(LogosBlockchainNode* node, const char* request_json) {
+    (void)node; (void)request_json;
+    MOCK_JSON_FN(sdp_post_declaration);
+}
+StringResult sdp_post_activity(LogosBlockchainNode* node, const char* request_json) {
+    (void)node; (void)request_json;
+    MOCK_JSON_FN(sdp_post_activity);
+}
+StringResult sdp_post_withdrawal(LogosBlockchainNode* node, const char* request_json) {
+    (void)node; (void)request_json;
+    MOCK_JSON_FN(sdp_post_withdrawal);
+}
+
 StringResult get_channel_state(LogosBlockchainNode* node, const uint8_t* channel_id) {
     LOGOS_CMOCK_RECORD("get_channel_state");
     StringResult result;

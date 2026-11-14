@@ -172,7 +172,28 @@ public:
     // not-found error when the channel does not exist yet.
     [[nodiscard]] StdLogosResult get_channel_state(const std::string& channel_id_hex) const;
 
-    // Blend
+    // Channel inscriptions and withdrawals (JSON in / JSON out).
+    // A request with "dry_run": true returns a fee estimate (including the
+    // default 12% priority) and never funds or submits a transaction.
+    [[nodiscard]] StdLogosResult channel_inscribe(const std::string& request_json) const;
+    [[nodiscard]] StdLogosResult channel_withdraw(const std::string& request_json) const;
+    // Create or read a dedicated Ed25519 channel key file. Returns public
+    // identifiers only (signer + LXM1 channel id); never the seed.
+    [[nodiscard]] static StdLogosResult channel_keygen(const std::string& key_path);
+    [[nodiscard]] static StdLogosResult channel_key_ident(const std::string& key_path);
+    // Current ledger gas prices as JSON (same schema as GET /mantle/gas-prices).
+    [[nodiscard]] StdLogosResult get_gas_prices() const;
+
+    // SDP (Service Declaration Protocol) status reads and posts. Posts accept
+    // the same JSON bodies as the node HTTP API; wrap with {"dry_run":true,...}
+    // to validate without submitting.
+    [[nodiscard]] StdLogosResult sdp_get_declarations() const;
+    [[nodiscard]] StdLogosResult sdp_get_snapshot() const;
+    [[nodiscard]] StdLogosResult sdp_get_finalized_declarations(const std::string& service_type) const;
+    [[nodiscard]] StdLogosResult sdp_post_declaration(const std::string& request_json) const;
+    [[nodiscard]] StdLogosResult sdp_post_activity(const std::string& request_json) const;
+    [[nodiscard]] StdLogosResult sdp_post_withdrawal(const std::string& request_json) const;
+
     [[nodiscard]] StdLogosResult blend_join_as_core_node(
         const std::string& locator,
         const std::string& locked_note_id_hex

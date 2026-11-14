@@ -37,6 +37,13 @@ Module (this repository, branch `windows-x86_64`):
 * `metadata.json`: Windows runtime files; libfyaml as an external library on Windows only.
 * `start()`: a relative `state.base_folder` (and the default `./state`) is resolved against the config
   file's directory, not the process cwd, via `STATE_PATH`. See the note below.
+* Channel inscriptions, channel withdraw, and SDP (declaration / activity / withdrawal, plus status reads)
+  are exposed through the node C API and the module. Inscribe uses a dedicated Ed25519 channel key (same
+  `inscribe_key.json` shape as lxpost), estimates the fee the same way LogosMiner does (exec gas 646 +
+  storage, then +12% priority), then funds and submits the signed `ChannelInscribe` transaction. A
+  `dry_run` flag estimates and validates without funding or submitting.
+* The Blockchain UI (`blockchain_ui`, branch `windows-x86_64`) adds Inscribe, Channel Withdraw, and SDP
+  screens. Fee preview and confirmation come before send.
 
 ## Build
 
@@ -54,7 +61,7 @@ lgx sign result/*.lgx --key yayguru.jwk --name yayguru --url https://github.com/
 
 1. Install Logos Basecamp 0.4.0 for Windows.
 2. Download `blockchain_module-0.3.4-windows-x86_64.lgx` and `blockchain_ui-0.3.5-windows-x86_64.lgx`
-   from the [release](https://github.com/yayguru/logos-blockchain-module/releases/tag/v0.3.4-windows.2) and check `SHA256SUMS`.
+   from the [release](https://github.com/yayguru/logos-blockchain-module/releases/tag/v0.3.4-windows.3) and check `SHA256SUMS`.
 3. Basecamp → Package Manager → **Install Local Package** → pick the module `.lgx`, then the UI `.lgx`.
    Basecamp says the publisher is not trusted yet: expected, the packages are signed by yayguru's own key
    (`did:jwk:eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6InRpMUIwVG5nODRHTU5wTThCOXNsZmZUSmdJWVJMWHlsNVppOFBiQ2daMW8ifQ`),

@@ -412,6 +412,79 @@ LOGOS_TEST(leader_claim_without_node_returns_error) {
     LOGOS_ASSERT_TRUE(contains(result.error, "not running"));
 }
 
+
+LOGOS_TEST(get_gas_prices_without_node_returns_error) {
+    auto t = LogosTestContext("blockchain_module");
+    LogosBlockchainModule module;
+    StdLogosResult result = module.get_gas_prices();
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "not running"));
+}
+
+LOGOS_TEST(sdp_get_declarations_without_node_returns_error) {
+    auto t = LogosTestContext("blockchain_module");
+    LogosBlockchainModule module;
+    StdLogosResult result = module.sdp_get_declarations();
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "not running"));
+}
+
+LOGOS_TEST(channel_keygen_empty_path_returns_error) {
+    auto t = LogosTestContext("blockchain_module");
+    StdLogosResult result = LogosBlockchainModule::channel_keygen("");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "empty"));
+}
+
+LOGOS_TEST(channel_inscribe_dry_run_returns_json_on_success) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    auto* module = createStartedModule(t, tmpDir);
+    LOGOS_ASSERT_TRUE(module != nullptr);
+
+    t.mockCFunction("channel_inscribe").returns(R"({"dry_run":true,"submitted":false,"estimated_fee":"3774"})");
+    t.mockCFunction("channel_inscribe_error").returns(0);
+
+    StdLogosResult result = module->channel_inscribe(R"({"dry_run":true,"payload_hex":"6869"})");
+    LOGOS_ASSERT_TRUE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.value.get<std::string>(), "estimated_fee"));
+    LOGOS_ASSERT_TRUE(contains(result.value.get<std::string>(), "3774"));
+    LOGOS_ASSERT(t.cFunctionCalled("channel_inscribe"));
+    LOGOS_ASSERT(t.cFunctionCalled("free_cstring"));
+    delete module;
+}
+
+LOGOS_TEST(sdp_post_declaration_dry_run_returns_json_on_success) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    auto* module = createStartedModule(t, tmpDir);
+    LOGOS_ASSERT_TRUE(module != nullptr);
+
+    t.mockCFunction("sdp_post_declaration").returns(R"({"dry_run":true,"valid":true,"submitted":false})");
+    t.mockCFunction("sdp_post_declaration_error").returns(0);
+
+    StdLogosResult result = module->sdp_post_declaration(R"({"dry_run":true,"body":{}})");
+    LOGOS_ASSERT_TRUE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.value.get<std::string>(), "\"submitted\":false"));
+    LOGOS_ASSERT(t.cFunctionCalled("sdp_post_declaration"));
+    delete module;
+}
+
+LOGOS_TEST(channel_withdraw_returns_error_on_ffi_failure) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    auto* module = createStartedModule(t, tmpDir);
+    LOGOS_ASSERT_TRUE(module != nullptr);
+
+    t.mockCFunction("channel_withdraw_error").returns(1);
+
+    StdLogosResult result = module->channel_withdraw(R"({"dry_run":true})");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "mock error"));
+    delete module;
+}
+
+
 LOGOS_TEST(channel_deposit_without_node_returns_error) {
     auto t = LogosTestContext("blockchain_module");
     LogosBlockchainModule module;

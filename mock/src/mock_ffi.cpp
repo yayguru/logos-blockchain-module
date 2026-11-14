@@ -540,6 +540,72 @@ FfiWalletFundResult wallet_fund_tx(const LogosBlockchainNode* node, const char* 
     return {ownedString(out), ok()};
 }
 
+
+static FfiWalletFundResult jsonResult(const std::string& out, Error err) {
+    if (err)
+        return {nullptr, status(err)};
+    return {ownedString(out), ok()};
+}
+
+FfiWalletFundResult channel_inscribe(const LogosBlockchainNode* node, const char* request_json) {
+    (void)node;
+    if (!request_json)
+        return {nullptr, status(NullPointer, "Received a null `request_json` pointer.")};
+    // The mock never submits. A dry-run estimate is enough for UI/module tests.
+    return jsonResult(R"({"dry_run":true,"submitted":false,"estimated_fee":"0","note":"mock does not submit inscriptions"})", {});
+}
+FfiWalletFundResult channel_withdraw(const LogosBlockchainNode* node, const char* request_json) {
+    (void)node;
+    if (!request_json)
+        return {nullptr, status(NullPointer, "Received a null `request_json` pointer.")};
+    return jsonResult(R"({"dry_run":true,"submitted":false,"estimated_fee":"0","note":"mock does not submit withdrawals"})", {});
+}
+FfiWalletFundResult channel_keygen(const char* key_path) {
+    if (!key_path)
+        return {nullptr, status(NullPointer, "Received a null `key_path` pointer.")};
+    return jsonResult(R"({"signer":"00","channel_id":"00","note":"mock keygen"})", {});
+}
+FfiWalletFundResult channel_key_ident(const char* key_path) {
+    if (!key_path)
+        return {nullptr, status(NullPointer, "Received a null `key_path` pointer.")};
+    return jsonResult(R"({"signer":"00","channel_id":"00","note":"mock ident"})", {});
+}
+FfiWalletFundResult get_gas_prices(const LogosBlockchainNode* node) {
+    NODE_OR_RETURN(FfiWalletFundResult)
+    return jsonResult(R"({"execution_base_gas_price":1,"storage_gas_price":7})", {});
+}
+FfiWalletFundResult sdp_get_declarations(const LogosBlockchainNode* node) {
+    NODE_OR_RETURN(FfiWalletFundResult)
+    return jsonResult("{}", {});
+}
+FfiWalletFundResult sdp_get_snapshot(const LogosBlockchainNode* node) {
+    NODE_OR_RETURN(FfiWalletFundResult)
+    return jsonResult("{}", {});
+}
+FfiWalletFundResult sdp_get_finalized_declarations(const LogosBlockchainNode* node, const char* service_type) {
+    (void)service_type;
+    NODE_OR_RETURN(FfiWalletFundResult)
+    return jsonResult("{}", {});
+}
+FfiWalletFundResult sdp_post_declaration(const LogosBlockchainNode* node, const char* request_json) {
+    (void)node;
+    if (!request_json)
+        return {nullptr, status(NullPointer, "Received a null `request_json` pointer.")};
+    return jsonResult(R"({"dry_run":true,"valid":true,"submitted":false,"note":"mock does not submit SDP"})", {});
+}
+FfiWalletFundResult sdp_post_activity(const LogosBlockchainNode* node, const char* request_json) {
+    (void)node;
+    if (!request_json)
+        return {nullptr, status(NullPointer, "Received a null `request_json` pointer.")};
+    return jsonResult(R"({"dry_run":true,"valid":true,"submitted":false,"note":"mock does not submit SDP"})", {});
+}
+FfiWalletFundResult sdp_post_withdrawal(const LogosBlockchainNode* node, const char* request_json) {
+    (void)node;
+    if (!request_json)
+        return {nullptr, status(NullPointer, "Received a null `request_json` pointer.")};
+    return jsonResult(R"({"dry_run":true,"valid":true,"submitted":false,"note":"mock does not submit SDP"})", {});
+}
+
 FfiSubmitTransactionResult submit_signed_transaction(const LogosBlockchainNode* node, const char* signed_tx_json) {
     NODE_OR_RETURN(FfiSubmitTransactionResult)
     if (!signed_tx_json)

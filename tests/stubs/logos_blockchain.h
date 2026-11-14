@@ -303,6 +303,17 @@ FfiChannelDepositResult channel_deposit_with_notes(
 FfiClaimableVouchersResult get_claimable_vouchers(LogosBlockchainNode* node, const HeaderId* optional_tip);
 OperationStatus free_claimable_vouchers(ClaimableVouchers vouchers);
 StringResult get_channel_state(LogosBlockchainNode* node, const uint8_t* channel_id);
+StringResult channel_inscribe(LogosBlockchainNode* node, const char* request_json);
+StringResult channel_withdraw(LogosBlockchainNode* node, const char* request_json);
+StringResult channel_keygen(const char* key_path);
+StringResult channel_key_ident(const char* key_path);
+StringResult get_gas_prices(LogosBlockchainNode* node);
+StringResult sdp_get_declarations(LogosBlockchainNode* node);
+StringResult sdp_get_snapshot(LogosBlockchainNode* node);
+StringResult sdp_get_finalized_declarations(LogosBlockchainNode* node, const char* service_type);
+StringResult sdp_post_declaration(LogosBlockchainNode* node, const char* request_json);
+StringResult sdp_post_activity(LogosBlockchainNode* node, const char* request_json);
+StringResult sdp_post_withdrawal(LogosBlockchainNode* node, const char* request_json);
 
 // Blend
 BlendHashResult blend_join_as_core_node(
