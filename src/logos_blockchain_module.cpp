@@ -676,8 +676,30 @@ StdLogosResult LogosBlockchainModule::generate_user_config(const std::string& js
     return result::ok(resolved_output);
 }
 
+namespace {
+    // Paths as Windows treats them: separators and letter case do not matter.
+    bool same_config_path(const std::string& a, const std::string& b) {
+        if (a.empty() || b.empty())
+            return false;
+        auto norm = [](const std::string& s) {
+            std::string out = fs::path(s).lexically_normal().generic_string();
+            std::replace(out.begin(), out.end(), '\\', '/');
+            std::transform(out.begin(), out.end(), out.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            return out;
+        };
+        return norm(a) == norm(b);
+    }
+} // namespace
+
 StdLogosResult LogosBlockchainModule::start(const std::string& config_path, const std::string& deployment) {
     std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
+    if (node && !config_path.empty() && same_config_path(localPathFromFileUrl(config_path), node_config_path)) {
+        // Autostart (or a UI that was reloaded) got there first with the same
+        // config: this is the node the caller asked for, not a second one.
+        fprintf(stderr, "start: the node is already running with this config\n");
+        return result::ok();
+    }
     if (node) {
         fprintf(stderr, "Could not execute the operation: The node is already running.\n");
         return result::err("The node is already running.");

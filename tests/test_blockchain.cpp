@@ -3367,3 +3367,19 @@ LOGOS_TEST(autostart_does_nothing_when_disabled_or_config_missing) {
     std::this_thread::sleep_for(std::chrono::milliseconds(3500));
     LOGOS_ASSERT_FALSE(resultJson(second.node_status())["running"].get<bool>());
 }
+
+LOGOS_TEST(start_is_idempotent_for_the_same_config_only) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    LogosBlockchainModule module;
+    t.mockCFunction("start_lb_node").returns(1);
+    t.mockCFunction("subscribe_to_new_blocks").returns(0);
+    t.mockCFunction("shutdown_node").returns(0);
+
+    LOGOS_ASSERT_TRUE(module.start(tmpDir.filePath("user_config.yaml"), "").success);
+    LOGOS_ASSERT_TRUE(module.start(tmpDir.filePath("USER_CONFIG.yaml"), "").success);
+    StdLogosResult other = module.start(tmpDir.filePath("other.yaml"), "");
+    LOGOS_ASSERT_FALSE(other.success);
+    LOGOS_ASSERT_TRUE(contains(other.error, "already running"));
+}
