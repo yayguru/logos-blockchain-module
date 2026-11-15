@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <fstream>
 #include <libfyaml.h>
 #include <map>
@@ -516,8 +517,19 @@ namespace {
         }
         free(text);
         std::error_code ec;
-        if (written)
+        if (written) {
             fs::rename(tmp, config, ec);
+            if (ec) {
+                // Some Windows runtimes will not rename over an existing file;
+                // overwrite in place from the fully written temp instead.
+                std::error_code copy_ec;
+                fs::copy_file(tmp, config, fs::copy_options::overwrite_existing, copy_ec);
+                if (!copy_ec) {
+                    fs::remove(tmp, copy_ec);
+                    ec.clear();
+                }
+            }
+        }
         if (!written || ec) {
             fs::remove(tmp, ec);
             error = "Failed to write " + config.string() + ".";
@@ -1142,7 +1154,12 @@ StdLogosResult LogosBlockchainModule::pow_configure(
         return result::err(std::move(error));
     }
 
-    UserConfigReader reader;
+    // Held in an optional so it can be released before the file is rewritten:
+    // libfyaml maps the file it parses, and Windows refuses to replace a file
+    // that is still mapped ("Failed to write …" on every save there).
+    std::optional<UserConfigReader> readerHolder;
+    readerHolder.emplace();
+    UserConfigReader& reader = *readerHolder;
     if (!reader.load(config, error)) {
         return result::err(std::move(error));
     }
@@ -1256,6 +1273,7 @@ StdLogosResult LogosBlockchainModule::pow_configure(
         has_targets ? &targets : nullptr
     );
 
+    readerHolder.reset();
     if (!merge_fragment_into_file(config, extra_yaml, error)) {
         return result::err(std::move(error));
     }
