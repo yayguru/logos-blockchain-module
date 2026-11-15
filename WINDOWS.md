@@ -1,6 +1,6 @@
 # Windows (x86_64) build of blockchain_module — unofficial
 
-Community build by **yayguru**, not affiliated with or endorsed by the Logos project.
+Unofficial build, not affiliated with or endorsed by the Logos project.
 It packages the Logos blockchain node as a Logos Basecamp module for Windows 10/11 x64
 (`windows-x86_64` variant), which the official release does not ship yet.
 
@@ -69,7 +69,7 @@ Short version:
    [module release](https://github.com/yayguru/logos-blockchain-module/releases) and
    `blockchain_ui-0.3.5-windows-x86_64.lgx` from the newest [UI release](https://github.com/yayguru/logos-blockchain-ui/releases).
 3. Basecamp → Package Manager → **Install Local Package** → the module `.lgx` first, then the UI `.lgx`.
-   Basecamp says the publisher is not trusted yet: expected, the packages are signed by yayguru's own key
+   Basecamp says the publisher is not trusted yet: expected, the packages are signed by the maintainer's own key (signer name shown: yayguru)
    (`did:jwk:eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6InRpMUIwVG5nODRHTU5wTThCOXNsZmZUSmdJWVJMWHlsNVppOFBiQ2daMW8ifQ`),
    not by Logos. Choose **Install**; **Trust** is not needed.
 4. Applications → **Blockchain** → *Use an existing config* (existing node) or *Start a new node*.
