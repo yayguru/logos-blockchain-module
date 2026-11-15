@@ -582,9 +582,13 @@ LogosBlockchainModule::LogosBlockchainModule() {
 }
 
 LogosBlockchainModule::~LogosBlockchainModule() {
+    autostart_cancel = true;
+    if (autostart_thread.joinable()) {
+        autostart_thread.join();
+    }
     s_instance = nullptr;
     if (node) {
-        (void)stop();
+        (void)stop_node();
     }
 }
 
@@ -673,6 +677,7 @@ StdLogosResult LogosBlockchainModule::generate_user_config(const std::string& js
 }
 
 StdLogosResult LogosBlockchainModule::start(const std::string& config_path, const std::string& deployment) {
+    std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
     if (node) {
         fprintf(stderr, "Could not execute the operation: The node is already running.\n");
         return result::err("The node is already running.");
@@ -721,6 +726,8 @@ StdLogosResult LogosBlockchainModule::start(const std::string& config_path, cons
     node = value;
     if (node) {
         node_config_path = effective_config_path;
+        node_deployment_path = deployment_path;
+        record_intent("node_wanted", true, effective_config_path, deployment_path);
     }
 
     if (!node) {
@@ -765,6 +772,32 @@ StdLogosResult LogosBlockchainModule::subscribe_to_lib_blocks() {
 }
 
 StdLogosResult LogosBlockchainModule::stop() {
+    std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
+    // The user stopped the node: an autostart still waiting must not undo that.
+    autostart_cancel = true;
+    StdLogosResult rc = stop_node();
+    if (rc.success) {
+        record_intent("node_wanted", false);
+        record_intent("mining_wanted", false);
+    }
+    return rc;
+}
+
+StdLogosResult LogosBlockchainModule::shutdown() {
+    std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
+    autostart_cancel = true;
+    return stop_node();
+}
+
+StdLogosResult LogosBlockchainModule::node_status() const {
+    json obj;
+    obj["running"] = node != nullptr;
+    obj["config_path"] = node ? node_config_path : std::string();
+    return result::ok(obj.dump());
+}
+
+StdLogosResult LogosBlockchainModule::stop_node() {
+    std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
     if (!node) {
         fprintf(stderr, "Could not execute the operation: The node is not running.\n");
         return result::err("The node is not running.");
@@ -779,10 +812,173 @@ StdLogosResult LogosBlockchainModule::stop() {
 
     node = nullptr;
     node_config_path.clear();
+    node_deployment_path.clear();
     is_new_blocks_subscribed = false;
     is_processed_blocks_subscribed = false;
     is_lib_blocks_subscribed = false;
     return result::ok();
+}
+
+// Autostart
+
+namespace autostart {
+    fs::path file_for(const std::string& persistence) {
+        return fs::path(persistence) / "autostart.json";
+    }
+
+    json read(const std::string& persistence) {
+        json obj = json::object();
+        if (persistence.empty())
+            return obj;
+        std::ifstream in(file_for(persistence));
+        if (!in)
+            return obj;
+        try {
+            in >> obj;
+        } catch (const std::exception&) {
+            obj = json::object();
+        }
+        if (!obj.is_object())
+            obj = json::object();
+        return obj;
+    }
+
+    bool write(const std::string& persistence, const json& obj) {
+        if (persistence.empty())
+            return false;
+        std::error_code ec;
+        fs::create_directories(persistence, ec);
+        const fs::path target = file_for(persistence);
+        const fs::path tmp = target.string() + ".tmp";
+        {
+            std::ofstream out(tmp, std::ios::trunc);
+            if (!out)
+                return false;
+            out << obj.dump(2);
+            if (!out)
+                return false;
+        }
+        fs::rename(tmp, target, ec);
+        return !ec;
+    }
+
+    bool flag(const json& obj, const char* key, bool fallback) {
+        const auto it = obj.find(key);
+        return it != obj.end() && it->is_boolean() ? it->get<bool>() : fallback;
+    }
+
+    std::string text(const json& obj, const char* key) {
+        const auto it = obj.find(key);
+        return it != obj.end() && it->is_string() ? it->get<std::string>() : std::string();
+    }
+} // namespace autostart
+
+void LogosBlockchainModule::record_intent(const char* key, bool value, const std::string& config,
+                                          const std::string& deployment) const {
+    const std::string& persistence = instancePersistencePath();
+    if (persistence.empty())
+        return;
+    json obj = autostart::read(persistence);
+    obj[key] = value;
+    if (!config.empty()) {
+        obj["config_path"] = config;
+        obj["deployment"] = deployment;
+    }
+    if (!autostart::write(persistence, obj))
+        fprintf(stderr, "autostart: could not write %s\n", autostart::file_for(persistence).string().c_str());
+}
+
+StdLogosResult LogosBlockchainModule::autostart_get() const {
+    json obj = autostart::read(instancePersistencePath());
+    json out;
+    out["enabled"] = autostart::flag(obj, "enabled", false);
+    out["node_wanted"] = autostart::flag(obj, "node_wanted", false);
+    out["mining_wanted"] = autostart::flag(obj, "mining_wanted", false);
+    out["config_path"] = autostart::text(obj, "config_path");
+    out["deployment"] = autostart::text(obj, "deployment");
+    return result::ok(out.dump());
+}
+
+StdLogosResult LogosBlockchainModule::autostart_set(const std::string& json_args) {
+    json args;
+    try {
+        args = json::parse(json_args);
+    } catch (const json::parse_error& e) {
+        return result::err(std::string("Failed to parse JSON args: ") + e.what());
+    }
+    if (!args.is_object() || !args.contains("enabled") || !args["enabled"].is_boolean())
+        return result::err("Expected {\"enabled\": true|false}.");
+    const std::string& persistence = instancePersistencePath();
+    if (persistence.empty())
+        return result::err("This instance has no persistence path, so autostart cannot be saved.");
+    json obj = autostart::read(persistence);
+    obj["enabled"] = args["enabled"].get<bool>();
+    if (!autostart::write(persistence, obj))
+        return result::err("Could not write " + autostart::file_for(persistence).string());
+    return autostart_get();
+}
+
+void LogosBlockchainModule::onContextReady() {
+    const json obj = autostart::read(instancePersistencePath());
+    if (!autostart::flag(obj, "enabled", false) || !autostart::flag(obj, "node_wanted", false))
+        return;
+    const std::string config = autostart::text(obj, "config_path");
+    std::error_code ec;
+    if (config.empty() || !fs::is_regular_file(fs::path(config), ec)) {
+        fprintf(stderr, "autostart: skipped, the last config is missing: %s\n", config.c_str());
+        return;
+    }
+    const bool mining = autostart::flag(obj, "mining_wanted", false);
+    autostart_cancel = false;
+    autostart_thread = std::thread(&LogosBlockchainModule::autostart_run, this, config,
+                                   autostart::text(obj, "deployment"), mining);
+}
+
+void LogosBlockchainModule::autostart_run(std::string config, std::string deployment, bool mining) {
+    // Let the host finish loading the module before the node takes the CPU.
+    for (int i = 0; i < 30 && !autostart_cancel; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    {
+        std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
+        if (autostart_cancel)
+            return;
+        if (node) {
+            fprintf(stderr, "autostart: the node is already running\n");
+        } else {
+            fprintf(stderr, "autostart: starting the node with %s\n", config.c_str());
+            StdLogosResult rc = start(config, deployment);
+            if (!rc.success) {
+                fprintf(stderr, "autostart: start failed\n");
+                return;
+            }
+        }
+    }
+    if (!mining)
+        return;
+    // Mining only makes sense on a synced node, the same rule the UI applies.
+    // Bounded: a node that never gets Online is left for the user to look at.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(6);
+    while (!autostart_cancel && std::chrono::steady_clock::now() < deadline) {
+        for (int i = 0; i < 150 && !autostart_cancel; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::lock_guard<std::recursive_mutex> lock(lifecycle_mutex);
+        if (autostart_cancel || !node)
+            return;
+        StdLogosResult info = get_cryptarchia_info();
+        if (!info.success)
+            continue;
+        try {
+            const json parsed =
+                info.value.is_string() ? json::parse(info.value.get<std::string>()) : info.value;
+            if (parsed.value("mode", std::string()) != "Online")
+                continue;
+        } catch (const std::exception&) {
+            continue;
+        }
+        StdLogosResult rc = pow_start_mining();
+        fprintf(stderr, "autostart: node Online, PoW mining %s\n", rc.success ? "restarted" : "could not be started");
+        return;
+    }
 }
 
 // State management
@@ -2012,7 +2208,10 @@ StdLogosResult LogosBlockchainModule::pow_start_mining() const {
     }
 
     OperationStatus status = ::pow_start_mining(node);
-    return result::from_operation_status(status);
+    StdLogosResult rc = result::from_operation_status(status);
+    if (rc.success)
+        record_intent("mining_wanted", true);
+    return rc;
 }
 
 StdLogosResult LogosBlockchainModule::pow_stop_mining() const {
@@ -2021,7 +2220,10 @@ StdLogosResult LogosBlockchainModule::pow_stop_mining() const {
     }
 
     OperationStatus status = ::pow_stop_mining(node);
-    return result::from_operation_status(status);
+    StdLogosResult rc = result::from_operation_status(status);
+    if (rc.success)
+        record_intent("mining_wanted", false);
+    return rc;
 }
 
 StdLogosResult LogosBlockchainModule::pow_start_auto_claim() const {

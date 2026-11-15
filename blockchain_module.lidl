@@ -6,6 +6,10 @@ module blockchain_module {
 
   method start(config_path: tstr, deployment: tstr) -> result
   method stop() -> result
+  method shutdown() -> result
+  method node_status() -> result
+  method autostart_get() -> result
+  method autostart_set(json_args: tstr) -> result
   method subscribe_to_new_blocks() -> result
   method subscribe_to_processed_blocks() -> result
   method subscribe_to_lib_blocks() -> result

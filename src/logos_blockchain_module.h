@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -25,6 +27,24 @@ public:
     // Lifecycle
     [[nodiscard]] StdLogosResult start(const std::string& config_path, const std::string& deployment);
     [[nodiscard]] StdLogosResult stop();
+    // Stops the node for an app shutdown or a UI unload. Unlike stop(), the
+    // autostart intent stays as it is, so the next module load brings the node back.
+    [[nodiscard]] StdLogosResult shutdown();
+    // {"running": bool, "config_path": "..."} without touching the node: lets a
+    // UI that was reloaded adopt a node that kept running.
+    [[nodiscard]] StdLogosResult node_status() const;
+
+    // Autostart
+    // The module persists, under its instance persistence path (autostart.json),
+    // whether the node and PoW mining should be running and which config the
+    // node last started with. When enabled, the module starts the node with that
+    // same config as soon as it is loaded, and turns mining back on once the node
+    // is Online. It never generates a config and never starts a second node.
+    // autostart_get answers {"enabled","node_wanted","mining_wanted","config_path","deployment"}.
+    [[nodiscard]] StdLogosResult autostart_get() const;
+    // json_args: {"enabled": bool}. Other fields are ignored: the intent itself is
+    // recorded by start/stop/pow_start_mining/pow_stop_mining.
+    [[nodiscard]] StdLogosResult autostart_set(const std::string& json_args);
 
     // Stream subscriptions
     // start() subscribes to all streams. Call these again after a stream ended. Blocks sent while it was down are lost;
@@ -302,7 +322,20 @@ logos_events:
     void libBlock(const std::string& blockInfoJson);
     // clang-format on
 
+protected:
+    void onContextReady() override;
+
 private:
+    StdLogosResult stop_node();
+    void record_intent(const char* key, bool value, const std::string& config = std::string(),
+                       const std::string& deployment = std::string()) const;
+    void autostart_run(std::string config, std::string deployment, bool mining);
+
+    std::recursive_mutex lifecycle_mutex;
+    std::thread autostart_thread;
+    std::atomic<bool> autostart_cancel{false};
+    std::string node_deployment_path;
+
     LogosBlockchainNode* node = nullptr;
     // The config the running node was started with, as start() resolved it; empty while stopped.
     std::string node_config_path;

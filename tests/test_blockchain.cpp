@@ -13,6 +13,8 @@
 #include <string>
 #include <unistd.h>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -3245,4 +3247,123 @@ LOGOS_TEST(start_keeps_an_absolute_base_folder) {
         config_paths::set_env("STATE_PATH", *previous);
     else
         config_paths::unset_env("STATE_PATH");
+}
+
+// ============================================================================
+// Autostart, shutdown, node_status
+// ============================================================================
+
+static nlohmann::json readAutostart(const TempDir& dir) {
+    std::ifstream in(dir.path / "autostart.json");
+    nlohmann::json obj = nlohmann::json::object();
+    if (in) in >> obj;
+    return obj;
+}
+
+static nlohmann::json resultJson(const StdLogosResult& rc) {
+    return rc.value.is_string() ? nlohmann::json::parse(rc.value.get<std::string>()) : rc.value;
+}
+
+LOGOS_TEST(start_records_the_config_and_stop_clears_the_intent) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    LogosBlockchainModule module;
+    module._logosCoreSetContext_("/mod", "id", tmpDir.path.string());
+    t.mockCFunction("start_lb_node").returns(1);
+    t.mockCFunction("subscribe_to_new_blocks").returns(0);
+    t.mockCFunction("shutdown_node").returns(0);
+
+    LOGOS_ASSERT_TRUE(module.start(tmpDir.filePath("config.yaml"), "").success);
+    nlohmann::json obj = readAutostart(tmpDir);
+    LOGOS_ASSERT_TRUE(obj.value("node_wanted", false));
+    LOGOS_ASSERT_EQ(obj.value("config_path", std::string()), tmpDir.filePath("config.yaml"));
+
+    LOGOS_ASSERT_TRUE(module.stop().success);
+    obj = readAutostart(tmpDir);
+    LOGOS_ASSERT_FALSE(obj.value("node_wanted", true));
+    LOGOS_ASSERT_FALSE(obj.value("mining_wanted", true));
+}
+
+LOGOS_TEST(shutdown_stops_the_node_but_keeps_the_intent) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    LogosBlockchainModule module;
+    module._logosCoreSetContext_("/mod", "id", tmpDir.path.string());
+    t.mockCFunction("start_lb_node").returns(1);
+    t.mockCFunction("subscribe_to_new_blocks").returns(0);
+    t.mockCFunction("shutdown_node").returns(0);
+
+    LOGOS_ASSERT_TRUE(module.start(tmpDir.filePath("config.yaml"), "").success);
+    LOGOS_ASSERT_TRUE(resultJson(module.node_status())["running"].get<bool>());
+    LOGOS_ASSERT_TRUE(module.shutdown().success);
+    LOGOS_ASSERT_FALSE(resultJson(module.node_status())["running"].get<bool>());
+    LOGOS_ASSERT_TRUE(readAutostart(tmpDir).value("node_wanted", false));
+}
+
+LOGOS_TEST(autostart_set_validates_and_persists_enabled) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    LogosBlockchainModule module;
+    module._logosCoreSetContext_("/mod", "id", tmpDir.path.string());
+
+    LOGOS_ASSERT_FALSE(module.autostart_set("{}").success);
+    LOGOS_ASSERT_FALSE(module.autostart_set("not json").success);
+    StdLogosResult rc = module.autostart_set(R"({"enabled":true})");
+    LOGOS_ASSERT_TRUE(rc.success);
+    LOGOS_ASSERT_TRUE(resultJson(rc)["enabled"].get<bool>());
+    LOGOS_ASSERT_TRUE(resultJson(module.autostart_get())["enabled"].get<bool>());
+    LOGOS_ASSERT_TRUE(module.autostart_set(R"({"enabled":false})").success);
+    LOGOS_ASSERT_FALSE(readAutostart(tmpDir).value("enabled", true));
+}
+
+LOGOS_TEST(autostart_starts_the_last_config_when_enabled) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    writeFile(tmpDir.path / "user_config.yaml", "state: {}\n");
+    nlohmann::json intent = {{"enabled", true}, {"node_wanted", true}, {"mining_wanted", false},
+                             {"config_path", tmpDir.filePath("user_config.yaml")}, {"deployment", ""}};
+    writeFile(tmpDir.path / "autostart.json", intent.dump());
+    t.mockCFunction("start_lb_node").returns(1);
+    t.mockCFunction("subscribe_to_new_blocks").returns(0);
+    t.mockCFunction("shutdown_node").returns(0);
+
+    LogosBlockchainModule module;
+    module._logosCoreSetContext_("/mod", "id", tmpDir.path.string());
+    bool running = false;
+    for (int i = 0; i < 100 && !running; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        running = resultJson(module.node_status())["running"].get<bool>();
+    }
+    LOGOS_ASSERT_TRUE(running);
+    LOGOS_ASSERT_EQ(resultJson(module.node_status())["config_path"].get<std::string>(),
+                    tmpDir.filePath("user_config.yaml"));
+}
+
+LOGOS_TEST(autostart_does_nothing_when_disabled_or_config_missing) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    LOGOS_ASSERT_TRUE(tmpDir.isValid());
+    nlohmann::json intent = {{"enabled", true}, {"node_wanted", true},
+                             {"config_path", tmpDir.filePath("missing.yaml")}};
+    writeFile(tmpDir.path / "autostart.json", intent.dump());
+    t.mockCFunction("start_lb_node").returns(1);
+    t.mockCFunction("subscribe_to_new_blocks").returns(0);
+
+    LogosBlockchainModule module;
+    module._logosCoreSetContext_("/mod", "id", tmpDir.path.string());
+    std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+    LOGOS_ASSERT_FALSE(resultJson(module.node_status())["running"].get<bool>());
+
+    TempDir other;
+    writeFile(other.path / "user_config.yaml", "state: {}\n");
+    intent = {{"enabled", false}, {"node_wanted", true}, {"config_path", other.filePath("user_config.yaml")}};
+    writeFile(other.path / "autostart.json", intent.dump());
+    LogosBlockchainModule second;
+    second._logosCoreSetContext_("/mod", "id", other.path.string());
+    std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+    LOGOS_ASSERT_FALSE(resultJson(second.node_status())["running"].get<bool>());
 }
