@@ -59,14 +59,24 @@ lgx sign result/*.lgx --key yayguru.jwk --name yayguru --url https://github.com/
 
 ## Install
 
-1. Install Logos Basecamp 0.4.0 for Windows.
-2. Download `blockchain_module-0.3.4-windows-x86_64.lgx` and `blockchain_ui-0.3.5-windows-x86_64.lgx`
-   from the [release](https://github.com/yayguru/logos-blockchain-module/releases/tag/v0.3.4-windows.3) and check `SHA256SUMS`.
-3. Basecamp → Package Manager → **Install Local Package** → pick the module `.lgx`, then the UI `.lgx`.
+Step-by-step user guide (download, install, back up keys, mining, stake, updating):
+**[logos-blockchain-ui → WINDOWS.md](https://github.com/yayguru/logos-blockchain-ui/blob/windows-x86_64/WINDOWS.md)**.
+
+Short version:
+
+1. Install Logos Basecamp 0.4.0-rc.2 for Windows.
+2. Download `blockchain_module-0.3.4-windows-x86_64.lgx` from the newest
+   [module release](https://github.com/yayguru/logos-blockchain-module/releases) and
+   `blockchain_ui-0.3.5-windows-x86_64.lgx` from the newest [UI release](https://github.com/yayguru/logos-blockchain-ui/releases).
+3. Basecamp → Package Manager → **Install Local Package** → the module `.lgx` first, then the UI `.lgx`.
    Basecamp says the publisher is not trusted yet: expected, the packages are signed by yayguru's own key
    (`did:jwk:eyJjcnYiOiJFZDI1NTE5Iiwia3R5IjoiT0tQIiwieCI6InRpMUIwVG5nODRHTU5wTThCOXNsZmZUSmdJWVJMWHlsNVppOFBiQ2daMW8ifQ`),
-   not by Logos. Choose **Install** (or **Trust & install** to trust yayguru for later updates).
-4. Applications → **Blockchain** → Set up your node.
+   not by Logos. Choose **Install**; **Trust** is not needed.
+4. Applications → **Blockchain** → *Use an existing config* (existing node) or *Start a new node*.
+5. Updating the module: **Stop Node → Reinstall module → Reinstall UI → Start Node**.
+
+Do not install the node from Basecamp's official catalog on Windows: it has no `windows-x86_64` variant
+("Package does not contain variant for platform windows-x86_64").
 
 Notes
 
