@@ -20,6 +20,8 @@ std::string g_lastGeneratedLogsPath;
 // tests can assert the module forwards it. A null pointer is recorded as the
 // sentinel "<null>".
 std::string g_lastPowClaimAddress;
+// Settings JSON passed to the most recent pow_set_mining_settings call.
+std::string g_last_pow_mining_settings;
 
 // Captures the callbacks passed to the subscription calls so tests can drive
 // the streams (including the NULL end-of-stream sentinel).
@@ -525,6 +527,12 @@ OperationStatus pow_start_mining(LogosBlockchainNode* node) {
 OperationStatus pow_stop_mining(LogosBlockchainNode* node) {
     LOGOS_CMOCK_RECORD("pow_stop_mining");
     return make_status(LOGOS_CMOCK_RETURN(int, "pow_stop_mining_error"));
+}
+
+OperationStatus pow_set_mining_settings(LogosBlockchainNode* node, const char* settings_json) {
+    LOGOS_CMOCK_RECORD("pow_set_mining_settings");
+    g_last_pow_mining_settings = settings_json ? settings_json : "";
+    return make_status(LOGOS_CMOCK_RETURN(int, "pow_set_mining_settings_error"));
 }
 
 OperationStatus pow_start_auto_claim(LogosBlockchainNode* node) {

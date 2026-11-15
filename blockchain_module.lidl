@@ -62,6 +62,7 @@ module blockchain_module {
   method pow_claim(claim_address_hex: tstr) -> result
   method pow_claimable_rewards() -> result
   method pow_status() -> result
+  method pow_set_max_threads(max_threads: tstr) -> result
   method pow_configure(config_path: tstr, config_json: tstr) -> result
   method read_accounts(config_path: tstr) -> result
   method read_pow_config(config_path: tstr) -> result

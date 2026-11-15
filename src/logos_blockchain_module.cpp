@@ -2248,6 +2248,70 @@ StdLogosResult LogosBlockchainModule::pow_stop_mining() const {
     return rc;
 }
 
+StdLogosResult LogosBlockchainModule::pow_set_max_threads(const std::string& max_threads) const {
+    if (!node) {
+        return result::err("The node is not running.");
+    }
+
+    std::string trimmed = max_threads;
+    trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n"));
+    trimmed.erase(trimmed.find_last_not_of(" \t\r\n") + 1);
+
+    nlohmann::json settings = nlohmann::json::object();
+    if (trimmed.empty() || trimmed == "null") {
+        settings["max_threads"] = nullptr;
+    } else {
+        if (trimmed.size() > 4 || trimmed.find_first_not_of("0123456789") != std::string::npos) {
+            return result::err("max_threads must be a whole number from 1 to 1024, or empty for all CPUs.");
+        }
+        const unsigned long threads = std::stoul(trimmed);
+        if (threads < 1 || threads > 1024) {
+            return result::err("max_threads must be a whole number from 1 to 1024, or empty for all CPUs.");
+        }
+        settings["max_threads"] = static_cast<uint64_t>(threads);
+    }
+
+    // The node replaces the whole mining section, and an omitted
+    // max_tickets_per_block would fall back to its default: carry the
+    // configured value over so only the thread count changes.
+    if (!node_config_path.empty()) {
+        UserConfigReader cfg;
+        std::string error;
+        const fs::path config = localPathFromFileUrl(node_config_path);
+        if (cfg.load(config, error)) {
+            const std::string tickets = cfg.scalarAt("/pow/mining/max_tickets_per_block");
+            if (!tickets.empty() && tickets.find_first_not_of("0123456789") == std::string::npos
+                && tickets.size() < 19) {
+                const unsigned long long n = std::stoull(tickets);
+                if (n > 0)
+                    settings["max_tickets_per_block"] = static_cast<uint64_t>(n);
+            }
+        }
+    }
+
+    const std::string settings_json = settings.dump();
+    OperationStatus status = ::pow_set_mining_settings(node, settings_json.c_str());
+    StdLogosResult rc = result::from_operation_status(status);
+    if (!rc.success)
+        return rc;
+
+    nlohmann::json out = settings;
+    if (!out.contains("max_tickets_per_block"))
+        out["max_tickets_per_block"] = nullptr;
+    if (node_config_path.empty()) {
+        out["persisted"] = false;
+        out["persist_error"] = "The node's config path is unknown.";
+    } else {
+        nlohmann::json persist = nlohmann::json::object();
+        persist["max_threads"] = settings["max_threads"];
+        const StdLogosResult saved = pow_configure(node_config_path, persist.dump());
+        out["persisted"] = saved.success;
+        if (!saved.success)
+            out["persist_error"] = saved.error;
+    }
+    return result::ok(out.dump());
+}
+
 StdLogosResult LogosBlockchainModule::pow_start_auto_claim() const {
     if (!node) {
         return result::err("The node is not running.");

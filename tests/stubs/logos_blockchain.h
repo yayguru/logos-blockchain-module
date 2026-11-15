@@ -353,6 +353,7 @@ FfiPoWClaimableRewardsResult pow_claimable_rewards(LogosBlockchainNode* node);
 OperationStatus free_pow_claimable_rewards(PoWClaimableRewards rewards);
 FfiPoWStatusResult pow_status(LogosBlockchainNode* node);
 OperationStatus free_pow_status(PoWStatus status);
+OperationStatus pow_set_mining_settings(LogosBlockchainNode* node, const char* settings_json);
 
 OperationStatus free_cstring(char* s);
 

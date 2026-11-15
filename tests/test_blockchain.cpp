@@ -2021,6 +2021,60 @@ LOGOS_TEST(get_time_info_returns_error_on_ffi_failure) {
 // PoW
 // ============================================================================
 
+extern std::string g_last_pow_mining_settings;
+
+LOGOS_TEST(pow_set_max_threads_without_node_returns_error) {
+    auto t = LogosTestContext("blockchain_module");
+    LogosBlockchainModule module;
+    StdLogosResult result = module.pow_set_max_threads("2");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "not running"));
+}
+
+LOGOS_TEST(pow_set_max_threads_rejects_bad_counts) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    auto* module = createStartedModule(t, tmpDir);
+    LOGOS_ASSERT_TRUE(module != nullptr);
+    t.mockCFunction("pow_set_mining_settings_error").returns(0);
+
+    LOGOS_ASSERT_FALSE(module->pow_set_max_threads("0").success);
+    LOGOS_ASSERT_FALSE(module->pow_set_max_threads("-1").success);
+    LOGOS_ASSERT_FALSE(module->pow_set_max_threads("2x").success);
+    LOGOS_ASSERT_FALSE(module->pow_set_max_threads("99999").success);
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("pow_set_mining_settings"));
+    delete module;
+}
+
+LOGOS_TEST(pow_set_max_threads_applies_live) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    auto* module = createStartedModule(t, tmpDir);
+    LOGOS_ASSERT_TRUE(module != nullptr);
+    t.mockCFunction("pow_set_mining_settings_error").returns(0);
+
+    g_last_pow_mining_settings.clear();
+    StdLogosResult result = module->pow_set_max_threads(" 3 ");
+    LOGOS_ASSERT_TRUE(result.success);
+    LOGOS_ASSERT(t.cFunctionCalled("pow_set_mining_settings"));
+    LOGOS_ASSERT_TRUE(contains(g_last_pow_mining_settings, "\"max_threads\":3"));
+
+    g_last_pow_mining_settings.clear();
+    LOGOS_ASSERT_TRUE(module->pow_set_max_threads("").success);
+    LOGOS_ASSERT_TRUE(contains(g_last_pow_mining_settings, "\"max_threads\":null"));
+    delete module;
+}
+
+LOGOS_TEST(pow_set_max_threads_returns_error_on_ffi_failure) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    auto* module = createStartedModule(t, tmpDir);
+    LOGOS_ASSERT_TRUE(module != nullptr);
+    t.mockCFunction("pow_set_mining_settings_error").returns(1);
+    LOGOS_ASSERT_FALSE(module->pow_set_max_threads("2").success);
+    delete module;
+}
+
 LOGOS_TEST(pow_start_mining_succeeds) {
     auto t = LogosTestContext("blockchain_module");
     TempDir tmpDir;

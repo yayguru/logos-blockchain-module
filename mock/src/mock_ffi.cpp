@@ -642,6 +642,16 @@ OperationStatus pow_stop_mining(const LogosBlockchainNode* node) {
     return ok();
 }
 
+OperationStatus pow_set_mining_settings(const LogosBlockchainNode* node, const char* settings_json) {
+    guard(__func__);
+    Node* n = sim(node);
+    if (!n)
+        return nullNode();
+    if (!settings_json)
+        return status(NullPointer, "Received a null pointer.");
+    return ok();
+}
+
 OperationStatus pow_start_auto_claim(const LogosBlockchainNode* node) {
     guard(__func__);
     Node* n = sim(node);

@@ -270,6 +270,15 @@ public:
     //   { claimable_tickets, slots_until_expiry: [ ... ] }
     [[nodiscard]] StdLogosResult pow_claimable_rewards() const;
     [[nodiscard]] StdLogosResult pow_status() const;
+    // Changes the ticket-search thread count of the RUNNING node (no restart,
+    // mining keeps going) and writes the same value into the config the node
+    // was started with, so it survives a restart. max_threads is a decimal
+    // count >= 1, or "" / "null" for one thread per logical CPU. The config's
+    // max_tickets_per_block is sent along unchanged (the node replaces the
+    // whole mining section at once).
+    //   -> { "max_threads": <u64>|null, "max_tickets_per_block": <u64>|null,
+    //        "persisted": bool, "persist_error": "<msg>"? }
+    [[nodiscard]] StdLogosResult pow_set_max_threads(const std::string& max_threads) const;
 
     // Writes the pow section into an already-generated config; the node reads it
     // on the next start(). Every field is optional and an absent one is left as
