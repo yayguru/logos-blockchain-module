@@ -5,6 +5,7 @@
 #include <logos_clib_mock.h>
 #include <logos_blockchain.h>
 #include <cstring>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 
@@ -22,6 +23,11 @@ std::string g_lastGeneratedLogsPath;
 std::string g_lastPowClaimAddress;
 // Settings JSON passed to the most recent pow_set_mining_settings call.
 std::string g_last_pow_mining_settings;
+// generate_key: the title it was last called with, and (when non-empty) the
+// text it writes over the keystore file, standing in for the real keystore
+// update so callers that verify the keystore afterwards can be tested.
+std::string g_lastGenerateKeyTitle;
+std::string g_generateKeyWritesKeystore;
 
 // Captures the callbacks passed to the subscription calls so tests can drive
 // the streams (including the NULL end-of-stream sentinel).
@@ -94,6 +100,13 @@ StringResult generate_key(
     const char* key_title)
 {
     LOGOS_CMOCK_RECORD("generate_key");
+    g_lastGenerateKeyTitle = key_title ? key_title : "<null>";
+    if (!g_generateKeyWritesKeystore.empty() && keystore_path) {
+        if (FILE* f = fopen(keystore_path, "wb")) {
+            fwrite(g_generateKeyWritesKeystore.data(), 1, g_generateKeyWritesKeystore.size(), f);
+            fclose(f);
+        }
+    }
     StringResult result;
     const char* id = LOGOS_CMOCK_RETURN_STRING("generate_key");
     result.value = id ? strdup(id) : nullptr;

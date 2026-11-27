@@ -3437,3 +3437,218 @@ LOGOS_TEST(start_is_idempotent_for_the_same_config_only) {
     LOGOS_ASSERT_FALSE(other.success);
     LOGOS_ASSERT_TRUE(contains(other.error, "already running"));
 }
+
+
+// ============================================================================
+// wallet_create_account
+// ============================================================================
+
+extern std::string g_lastGenerateKeyTitle;
+extern std::string g_generateKeyWritesKeystore;
+
+static const std::string NEW_KEY_ID =
+    "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
+
+static std::string keystoreWith(const std::string& title, const std::string& id) {
+    return "public_keys:\n"
+           "  Mining: 39e16b432574571a6bcd8ee36e370589641bd9f35367f6f97a972453c46c3225\n"
+           "  Savings: 9750fa86471fddc69749aa9f8568ef6635e64d9f9aa815e8cb932cea183c8e18\n"
+           "  " + title + ": " + id + "\n"
+           "secret_keys:\n"
+           "  Mining: !Ed25519 1111111111111111111111111111111111111111111111111111111111111111\n"
+           "  Savings: !Zk 2222222222222222222222222222222222222222222222222222222222222222\n"
+           "  " + title + ": !Zk 3333333333333333333333333333333333333333333333333333333333333333\n";
+}
+
+// A config whose auto-claim pays the leader key, the case that must survive.
+static std::string configWithClaimTarget(const TempDir& dir) {
+    const std::string config = writeGeneratedConfig(dir);
+    LogosBlockchainModule::pow_configure(
+        config, R"({"auto_claim_targets": [{"public_key": "", "threshold": 2000000000}]})");
+    return config;
+}
+
+struct GenerateKeyReset {
+    ~GenerateKeyReset() { g_generateKeyWritesKeystore.clear(); g_lastGenerateKeyTitle.clear(); }
+};
+
+LOGOS_TEST(wallet_create_account_adds_the_key_and_keeps_everything_else) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    writeKeystore(tmpDir, KEYSTORE);
+    const nlohmann::json powBefore = readPow(config);
+
+    g_generateKeyWritesKeystore = keystoreWith("Account 1", NEW_KEY_ID);
+    t.mockCFunction("generate_key").returns(NEW_KEY_ID.c_str());
+    t.mockCFunction("generate_key_error").returns(0);
+
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "");
+    LOGOS_ASSERT_TRUE(result.success);
+    const nlohmann::json out = nlohmann::json::parse(result.value.get<std::string>());
+    LOGOS_ASSERT_EQ(out["title"], nlohmann::json("Account 1"));
+    LOGOS_ASSERT_EQ(out["key_id"], nlohmann::json(NEW_KEY_ID));
+    LOGOS_ASSERT_TRUE(out["restart_required"].get<bool>());
+    LOGOS_ASSERT_EQ(g_lastGenerateKeyTitle, std::string("Account 1"));
+
+    // The new key is tracked; both old ones and the auto-claim target are untouched.
+    const std::string text = readFileText(config);
+    LOGOS_ASSERT_TRUE(contains(text, NEW_KEY_ID + ": " + NEW_KEY_ID));
+    LOGOS_ASSERT_TRUE(contains(text, LEADER_FUNDING_PK + ": " + LEADER_FUNDING_PK));
+    LOGOS_ASSERT_TRUE(contains(text, SDP_FUNDING_PK + ": " + SDP_FUNDING_PK));
+    LOGOS_ASSERT_EQ(readPow(config), powBefore);
+    LOGOS_ASSERT_TRUE(contains(text, "voucher_master_key_id"));
+    LOGOS_ASSERT_TRUE(contains(text, "!Zk 23224f5a"));
+}
+
+LOGOS_TEST(wallet_create_account_passes_a_custom_name) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    writeKeystore(tmpDir, KEYSTORE);
+    g_generateKeyWritesKeystore = keystoreWith("Daily spending", NEW_KEY_ID);
+    t.mockCFunction("generate_key").returns(NEW_KEY_ID.c_str());
+    t.mockCFunction("generate_key_error").returns(0);
+
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "  Daily spending ");
+    LOGOS_ASSERT_TRUE(result.success);
+    LOGOS_ASSERT_EQ(g_lastGenerateKeyTitle, std::string("Daily spending"));
+}
+
+// Generating into an existing title would replace that key: refused before
+// anything is touched, case-insensitively, and for the node's own titles too.
+LOGOS_TEST(wallet_create_account_never_reuses_a_title) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    writeKeystore(tmpDir, KEYSTORE);
+    const std::string configBefore = readFileText(config);
+    const std::string keystoreBefore = readFileText(tmpDir.filePath("keystore.yaml"));
+
+    for (const char* name : {"mining", "Savings", "PoWClaim", "leaderfunding", "Stake"}) {
+        StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, name);
+        LOGOS_ASSERT_FALSE(result.success);
+    }
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("generate_key"));
+    LOGOS_ASSERT_EQ(readFileText(config), configBefore);
+    LOGOS_ASSERT_EQ(readFileText(tmpDir.filePath("keystore.yaml")), keystoreBefore);
+}
+
+LOGOS_TEST(wallet_create_account_rejects_bad_names) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    writeKeystore(tmpDir, KEYSTORE);
+    for (const char* name : {"-dash", "a:b", "x\ny", "this name is far too long for a title"}) {
+        LOGOS_ASSERT_FALSE(LogosBlockchainModule().wallet_create_account(config, name).success);
+    }
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("generate_key"));
+}
+
+LOGOS_TEST(wallet_create_account_needs_a_keystore_beside_the_config) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "keystore"));
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("generate_key"));
+}
+
+LOGOS_TEST(wallet_create_account_without_a_path_needs_a_running_node) {
+    auto t = LogosTestContext("blockchain_module");
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account("", "");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "No node is running"));
+}
+
+LOGOS_TEST(wallet_create_account_restores_both_files_on_ffi_failure) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    writeKeystore(tmpDir, KEYSTORE);
+    const std::string configBefore = readFileText(config);
+    const std::string keystoreBefore = readFileText(tmpDir.filePath("keystore.yaml"));
+
+    // The failing call still scribbled on the keystore.
+    g_generateKeyWritesKeystore = "garbage: [";
+    t.mockCFunction("generate_key_error").returns(1);
+
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_TRUE(contains(result.error, "Nothing was changed"));
+    LOGOS_ASSERT_EQ(readFileText(config), configBefore);
+    LOGOS_ASSERT_EQ(readFileText(tmpDir.filePath("keystore.yaml")), keystoreBefore);
+}
+
+// If an existing key's id changed, the generation clobbered it: undo everything.
+LOGOS_TEST(wallet_create_account_restores_when_an_existing_key_changed) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    writeKeystore(tmpDir, KEYSTORE);
+    const std::string configBefore = readFileText(config);
+    const std::string keystoreBefore = readFileText(tmpDir.filePath("keystore.yaml"));
+
+    std::string clobbered = keystoreWith("Account 1", NEW_KEY_ID);
+    const std::string old = "Mining: 39e16b432574571a6bcd8ee36e370589641bd9f35367f6f97a972453c46c3225";
+    clobbered.replace(clobbered.find(old), old.size(), "Mining: " + NEW_KEY_ID);
+    g_generateKeyWritesKeystore = clobbered;
+    t.mockCFunction("generate_key").returns(NEW_KEY_ID.c_str());
+    t.mockCFunction("generate_key_error").returns(0);
+
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_EQ(readFileText(config), configBefore);
+    LOGOS_ASSERT_EQ(readFileText(tmpDir.filePath("keystore.yaml")), keystoreBefore);
+}
+
+LOGOS_TEST(wallet_create_account_restores_when_the_key_never_landed) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string config = configWithClaimTarget(tmpDir);
+    writeKeystore(tmpDir, KEYSTORE);
+    const std::string configBefore = readFileText(config);
+    t.mockCFunction("generate_key").returns(NEW_KEY_ID.c_str());
+    t.mockCFunction("generate_key_error").returns(0);
+
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "");
+    LOGOS_ASSERT_FALSE(result.success);
+    LOGOS_ASSERT_EQ(readFileText(config), configBefore);
+    LOGOS_ASSERT_FALSE(contains(readFileText(config), NEW_KEY_ID));
+}
+
+// A sparse config (keys only in the keystore) gains just the one entry.
+LOGOS_TEST(wallet_create_account_appends_to_a_sparse_config) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string config = tmpDir.filePath("user_config.yaml");
+    std::ofstream(config) << "pow:\n  mining:\n    max_threads: 3\nstate:\n  path: null\n";
+    writeKeystore(tmpDir, KEYSTORE);
+    g_generateKeyWritesKeystore = keystoreWith("Account 1", NEW_KEY_ID);
+    t.mockCFunction("generate_key").returns(NEW_KEY_ID.c_str());
+    t.mockCFunction("generate_key_error").returns(0);
+
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "");
+    LOGOS_ASSERT_TRUE(result.success);
+    const std::string text = readFileText(config);
+    LOGOS_ASSERT_TRUE(contains(text, "known_keys"));
+    LOGOS_ASSERT_TRUE(contains(text, NEW_KEY_ID + ": " + NEW_KEY_ID));
+    LOGOS_ASSERT_TRUE(contains(text, "max_threads: 3"));
+}
+
+LOGOS_TEST(wallet_create_account_refuses_a_custom_keystore_location) {
+    auto t = LogosTestContext("blockchain_module");
+    TempDir tmpDir;
+    const std::string config = tmpDir.filePath("user_config.yaml");
+    std::ofstream(config) << "kms:\n  keystore: other/keys.yaml\n";
+    writeKeystore(tmpDir, KEYSTORE);
+    LOGOS_ASSERT_FALSE(LogosBlockchainModule().wallet_create_account(config, "").success);
+    LOGOS_ASSERT_FALSE(t.cFunctionCalled("generate_key"));
+}

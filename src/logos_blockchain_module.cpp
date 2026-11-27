@@ -1125,6 +1125,258 @@ StdLogosResult LogosBlockchainModule::remove_key(const std::string& keystore_pat
     return result::from_operation_status(status);
 }
 
+// New wallet account
+namespace {
+    bool read_file_bytes(const fs::path& path, std::string& out) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+            return false;
+        out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        return static_cast<bool>(in) || in.eof();
+    }
+
+    // Writes `bytes` to a temp file beside `path` and swaps it in; falls back
+    // to copying over the target where Windows refuses the rename.
+    bool write_file_bytes(const fs::path& path, const std::string& bytes) {
+        const fs::path tmp = path.string() + ".tmp";
+        {
+            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+            out << bytes;
+            if (!out)
+                return false;
+        }
+        std::error_code ec;
+        fs::rename(tmp, path, ec);
+        if (ec) {
+            std::error_code copy_ec;
+            fs::copy_file(tmp, path, fs::copy_options::overwrite_existing, copy_ec);
+            fs::remove(tmp, ec);
+            return !copy_ec;
+        }
+        return true;
+    }
+
+    std::string lower_ascii(std::string v) {
+        std::transform(v.begin(), v.end(), v.begin(), [](const unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return v;
+    }
+
+    bool valid_account_title(const std::string& title) {
+        if (title.empty() || title.size() > 32)
+            return false;
+        if (!std::isalnum(static_cast<unsigned char>(title.front())))
+            return false;
+        return std::all_of(title.begin(), title.end(), [](const unsigned char c) {
+            return std::isalnum(c) || c == ' ' || c == '_' || c == '-' || c == '.';
+        });
+    }
+
+    bool is_hex64(const std::string& v) {
+        return v.size() == 64 && std::all_of(v.begin(), v.end(), [](const unsigned char c) {
+            return std::isxdigit(c);
+        });
+    }
+
+    // title -> key id, as the keystore's public_keys section lists them. Only
+    // the public half is read.
+    bool keystore_titles(const fs::path& keystore, std::map<std::string, std::string>& out, std::string& error) {
+        UserConfigReader reader;
+        if (!reader.load(keystore, error))
+            return false;
+        if (!reader.isMappingAt("/public_keys")) {
+            error = "The keystore at " + keystore.string() + " has no public_keys section.";
+            return false;
+        }
+        out.clear();
+        for (const auto& [title, key_id] : reader.entriesAt("/public_keys"))
+            out[title] = lower_ascii(key_id);
+        return true;
+    }
+
+    struct WalletSnapshot {
+        std::map<std::string, std::string> known_keys; // key id (lowercase) -> public key
+        std::vector<std::string> claim_targets;
+    };
+
+    bool wallet_snapshot(const fs::path& config, WalletSnapshot& out, std::string& error) {
+        UserConfigReader reader;
+        if (!reader.load(config, error))
+            return false;
+        out.known_keys.clear();
+        for (const auto& [key_id, public_key] : reader.entriesAt("/wallet/known_keys"))
+            out.known_keys[lower_ascii(key_id)] = public_key;
+        out.claim_targets.clear();
+        for (size_t i = 0;; ++i) {
+            const std::string pk = reader.scalarAt(("/pow/auto_claim/targets/" + std::to_string(i) + "/public_key").c_str());
+            if (pk.empty())
+                break;
+            out.claim_targets.push_back(lower_ascii(pk));
+        }
+        return true;
+    }
+} // namespace
+
+StdLogosResult LogosBlockchainModule::wallet_create_account(
+    const std::string& config_path,
+    const std::string& requested_title
+) const {
+    if (config_path.empty() && node_config_path.empty()) {
+        return result::err("No node is running, so there is no config to add the account to; pass its path.");
+    }
+    const fs::path config = localPathFromFileUrl(config_path.empty() ? node_config_path : config_path);
+    if (config.empty()) {
+        return result::err("Config path was not specified.");
+    }
+
+    std::string error;
+    // The keystore the node composes the wallet from. A config that points
+    // its keystore elsewhere is not something this call guesses at.
+    fs::path keystore = config.parent_path() / "keystore.yaml";
+    {
+        UserConfigReader raw;
+        if (!raw.load(config, error)) {
+            return result::err(std::move(error));
+        }
+        const std::string custom = raw.scalarAt("/kms/keystore");
+        if (!custom.empty() && custom != "keystore.yaml") {
+            return result::err("This config keeps its keystore at '" + custom +
+                               "'; adding accounts is only supported with keystore.yaml beside the config.");
+        }
+    }
+    std::error_code ec;
+    if (!fs::is_regular_file(keystore, ec)) {
+        return result::err("No keystore.yaml beside " + config.string() + "; a new account needs one.");
+    }
+
+    std::map<std::string, std::string> titles_before;
+    if (!keystore_titles(keystore, titles_before, error)) {
+        return result::err(std::move(error));
+    }
+    WalletSnapshot before;
+    if (!wallet_snapshot(config, before, error)) {
+        return result::err(std::move(error));
+    }
+
+    // Title: never one that exists (generating into it would replace that key).
+    std::string title = requested_title;
+    boost::algorithm::trim(title);
+    const auto taken = [&titles_before](const std::string& t) {
+        const std::string lt = lower_ascii(t);
+        for (const auto& [existing, id] : titles_before)
+            if (lower_ascii(existing) == lt)
+                return true;
+        static const char* const reserved[] = {"BlendSigning", "BlendZk", "LeaderFunding", "NetworkSwarm",
+                                               "PoWClaim", "SdpFunding", "VaucherMaster", "Stake"};
+        for (const char* r : reserved)
+            if (lower_ascii(r) == lt)
+                return true;
+        return false;
+    };
+    if (title.empty()) {
+        for (int n = 1; n < 1000; ++n) {
+            const std::string candidate = "Account " + std::to_string(n);
+            if (!taken(candidate)) {
+                title = candidate;
+                break;
+            }
+        }
+    }
+    if (!valid_account_title(title)) {
+        return result::err("Invalid account name: use 1-32 letters, digits, spaces, '-', '_' or '.', starting with a letter or digit.");
+    }
+    if (taken(title)) {
+        return result::err("An account named '" + title + "' already exists; pick another name.");
+    }
+
+    // Byte-exact copies to restore from if anything below fails.
+    std::string keystore_bytes;
+    std::string config_bytes;
+    if (!read_file_bytes(keystore, keystore_bytes) || !read_file_bytes(config, config_bytes)) {
+        return result::err("Could not read the keystore or the config before changing them.");
+    }
+    const auto restore = [&](const std::string& why) {
+        const bool ok_keystore = write_file_bytes(keystore, keystore_bytes);
+        const bool ok_config = write_file_bytes(config, config_bytes);
+        std::string message = why;
+        if (ok_keystore && ok_config)
+            message += " Nothing was changed (both files restored).";
+        else
+            message += " WARNING: restoring the original files failed; restore them from your backup before starting the node.";
+        return result::err(message);
+    };
+
+    KeyType zk{};
+    parse_key_type("zk", zk);
+    auto [value, gen_error] = ::generate_key(keystore.string().c_str(), zk, title.c_str());
+    if (!is_ok(&gen_error)) {
+        return restore("Generating the key failed: " + operation_status::take_message(gen_error) + ".");
+    }
+    const std::string key_id = lower_ascii(std::string(value));
+    OperationStatus free_status = free_cstring(value);
+    (void)free_status;
+    if (!is_hex64(key_id)) {
+        return restore("The keystore returned an unexpected key id.");
+    }
+
+    // Keystore: every old title still maps to the same id, plus the new one.
+    std::map<std::string, std::string> titles_after;
+    if (!keystore_titles(keystore, titles_after, error)) {
+        return restore("The keystore could not be read back: " + error);
+    }
+    for (const auto& [t, id] : titles_before) {
+        const auto it = titles_after.find(t);
+        if (it == titles_after.end() || it->second != id)
+            return restore("A key already in the keystore changed or disappeared ('" + t + "').");
+    }
+    const auto added = titles_after.find(title);
+    if (added == titles_after.end() || added->second != key_id || titles_after.size() != titles_before.size() + 1) {
+        return restore("The new key is not in the keystore as expected.");
+    }
+
+    // Config: append the key; a mapping merge only ever adds or overwrites the
+    // same id, so nothing already tracked is dropped.
+    const std::string fragment = "wallet:\n  known_keys:\n    " + key_id + ": " + key_id + "\n";
+    if (!merge_fragment_into_file(config, fragment, error)) {
+        return restore(error);
+    }
+
+    WalletSnapshot after;
+    if (!wallet_snapshot(config, after, error)) {
+        return restore("The config could not be read back: " + error);
+    }
+    for (const auto& [id, pk] : before.known_keys) {
+        const auto it = after.known_keys.find(id);
+        if (it == after.known_keys.end() || it->second != pk)
+            return restore("A tracked key changed or disappeared from wallet.known_keys (" + id + ").");
+    }
+    if (after.known_keys.find(key_id) == after.known_keys.end()) {
+        return restore("The new key is not in wallet.known_keys after the write.");
+    }
+    if (after.claim_targets != before.claim_targets) {
+        return restore("The auto-claim targets changed.");
+    }
+    for (const std::string& target : after.claim_targets) {
+        bool tracked = false;
+        for (const auto& [id, pk] : after.known_keys)
+            tracked = tracked || pk == target;
+        if (!tracked)
+            return restore("Auto-claim target " + target + " would not be tracked; the node would refuse to start.");
+    }
+
+    fprintf(stderr, "wallet_create_account: added '%s' (%s)\n", title.c_str(), key_id.c_str());
+    nlohmann::json out{
+        {"key_id", key_id},
+        {"public_key", key_id},
+        {"title", title},
+        {"keystore_path", keystore.string()},
+        {"config_path", config.string()},
+        {"restart_required", true},
+    };
+    return result::ok(out.dump());
+}
+
 // Identity
 StdLogosResult LogosBlockchainModule::pow_configure(
     const std::string& config_path,

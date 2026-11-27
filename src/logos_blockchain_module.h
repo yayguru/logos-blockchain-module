@@ -110,6 +110,23 @@ public:
         const std::string& key_title
     );
 
+    // Creates a new wallet account (a zk key) and makes the wallet track it.
+    // Additive only: the key is generated into the keystore beside the config
+    // (never overwriting a title that exists), then appended to
+    // wallet.known_keys. Nothing already in the keystore or in known_keys is
+    // removed or changed, and every auto-claim target stays tracked. If any
+    // step fails, both files are restored byte for byte. The node picks the
+    // account up on its next start.
+    // title: 1-32 of [A-Za-z0-9 _.-], starting with a letter or digit; empty =
+    // "Account N". An empty config_path uses the running node's config.
+    //   -> { "key_id": "<hex>", "public_key": "<hex>", "title": "<name>",
+    //        "keystore_path": "<path>", "config_path": "<path>",
+    //        "restart_required": true }
+    [[nodiscard]] StdLogosResult wallet_create_account(
+        const std::string& config_path,
+        const std::string& title
+    ) const;
+
     // Identity
     [[nodiscard]] static StdLogosResult get_peer_id(const std::string& config_path);
 
