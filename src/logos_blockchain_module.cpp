@@ -1357,10 +1357,15 @@ StdLogosResult LogosBlockchainModule::wallet_create_account(
     if (after.claim_targets != before.claim_targets) {
         return restore("The auto-claim targets changed.");
     }
+    // The node tracks every key in the keystore beside the config plus the
+    // config's own wallet.known_keys (a sparse config often has none), so a
+    // target counts as tracked if either holds it.
     for (const std::string& target : after.claim_targets) {
         bool tracked = false;
         for (const auto& [id, pk] : after.known_keys)
-            tracked = tracked || pk == target;
+            tracked = tracked || lower_ascii(pk) == target || id == target;
+        for (const auto& [t, id] : titles_after)
+            tracked = tracked || id == target;
         if (!tracked)
             return restore("Auto-claim target " + target + " would not be tracked; the node would refuse to start.");
     }

@@ -3652,3 +3652,55 @@ LOGOS_TEST(wallet_create_account_refuses_a_custom_keystore_location) {
     LOGOS_ASSERT_FALSE(LogosBlockchainModule().wallet_create_account(config, "").success);
     LOGOS_ASSERT_FALSE(t.cFunctionCalled("generate_key"));
 }
+
+// The laptop's shape: a sparse config with no wallet section, auto-claim paying
+// a key the node tracks only because it is in the keystore.
+static std::string fixtureId(const char* keystore, const std::string& title) {
+    const std::string text(keystore);
+    const std::string tag = "  " + title + ": ";
+    const size_t at = text.find(tag);
+    return at == std::string::npos ? std::string() : text.substr(at + tag.size(), 64);
+}
+
+LOGOS_TEST(wallet_create_account_keeps_a_keystore_tracked_claim_target) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string savings = fixtureId(KEYSTORE, "Savings");
+    LOGOS_ASSERT_EQ(savings.size(), size_t(64));
+    const std::string config = tmpDir.filePath("user_config.yaml");
+    std::ofstream(config) << "pow:\n  mining:\n    max_threads: 3\n  auto_claim:\n    targets:\n    - public_key: "
+                          << savings << "\n      threshold: 18446744073709551615\nstate:\n  path: null\n";
+    writeKeystore(tmpDir, KEYSTORE);
+    g_generateKeyWritesKeystore = keystoreWith("Account 1", NEW_KEY_ID);
+    t.mockCFunction("generate_key").returns(NEW_KEY_ID.c_str());
+    t.mockCFunction("generate_key_error").returns(0);
+
+    StdLogosResult result = LogosBlockchainModule().wallet_create_account(config, "");
+    LOGOS_ASSERT_TRUE(result.success);
+    const std::string text = readFileText(config);
+    LOGOS_ASSERT_TRUE(contains(text, NEW_KEY_ID + ": " + NEW_KEY_ID));
+    LOGOS_ASSERT_TRUE(contains(text, "public_key: " + savings));
+    LOGOS_ASSERT_TRUE(contains(text, "max_threads: 3"));
+}
+
+// A target tracked nowhere (not in the keystore, not in the config) would stop
+// the node from starting; refuse and leave both files as they were.
+LOGOS_TEST(wallet_create_account_refuses_when_a_target_is_tracked_nowhere) {
+    auto t = LogosTestContext("blockchain_module");
+    GenerateKeyReset reset;
+    TempDir tmpDir;
+    const std::string config = tmpDir.filePath("user_config.yaml");
+    const std::string orphan(64, 'c');
+    const std::string original = "pow:\n  auto_claim:\n    targets:\n    - public_key: " + orphan +
+                                 "\n      threshold: 5\n";
+    std::ofstream(config) << original;
+    writeKeystore(tmpDir, KEYSTORE);
+    g_generateKeyWritesKeystore = keystoreWith("Account 1", NEW_KEY_ID);
+    t.mockCFunction("generate_key").returns(NEW_KEY_ID.c_str());
+    t.mockCFunction("generate_key_error").returns(0);
+
+    LOGOS_ASSERT_FALSE(LogosBlockchainModule().wallet_create_account(config, "").success);
+    LOGOS_ASSERT_EQ(readFileText(config), original);
+    LOGOS_ASSERT_EQ(readFileText(tmpDir.filePath("keystore.yaml")), std::string(KEYSTORE));
+}
